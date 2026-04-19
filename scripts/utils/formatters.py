@@ -8,29 +8,56 @@ from typing import Dict, List, Union
 
 # ----------------- 路径自动探测 -----------------
 def get_default_drafts_root() -> str:
-    """自动探测剪映草稿目录 (Windows)"""
-    local_app_data = os.environ.get("LOCALAPPDATA")
-    user_profile = os.environ.get("USERPROFILE")
+    """自动探测剪映草稿目录 (Windows / macOS 跨平台)"""
+    import sys as _sys
 
     candidates = []
-    if local_app_data:
+
+    if _sys.platform == "darwin":
+        # ---- macOS ----
+        home = os.path.expanduser("~")
         candidates.extend(
             [
-                os.path.join(local_app_data, "JianyingPro/User Data/Projects/com.lveditor.draft"),
-                os.path.join(local_app_data, "CapCut/User Data/Projects/com.lveditor.draft"),
+                os.path.join(home, "Movies", "JianyingPro Drafts"),
+                os.path.join(home, "Movies", "JianyingPro", "User Data", "Projects", "com.lveditor.draft"),
+                os.path.join(
+                    home, "Library", "Containers", "com.lemon.lvpro", "Data",
+                    "Library", "Application Support", "JianyingPro",
+                    "User Data", "Projects", "com.lveditor.draft",
+                ),
+                os.path.join(
+                    home, "Library", "Application Support", "JianyingPro",
+                    "User Data", "Projects", "com.lveditor.draft",
+                ),
             ]
         )
+        fallback = os.path.join(home, "Movies", "JianyingPro Drafts")
+    else:
+        # ---- Windows ----
+        local_app_data = os.environ.get("LOCALAPPDATA")
+        user_profile = os.environ.get("USERPROFILE")
 
-    if user_profile:
-        candidates.append(
-            os.path.join(
-                user_profile, "AppData/Local/JianyingPro/User Data/Projects/com.lveditor.draft"
+        if local_app_data:
+            candidates.extend(
+                [
+                    os.path.join(local_app_data, "JianyingPro", "User Data", "Projects", "com.lveditor.draft"),
+                    os.path.join(local_app_data, "CapCut", "User Data", "Projects", "com.lveditor.draft"),
+                ]
             )
+
+        if user_profile:
+            candidates.append(
+                os.path.join(
+                    user_profile, "AppData", "Local", "JianyingPro",
+                    "User Data", "Projects", "com.lveditor.draft",
+                )
+            )
+
+        fallback = os.path.join(
+            "C:", os.sep, "Users", "Administrator", "AppData", "Local",
+            "JianyingPro", "User Data", "Projects", "com.lveditor.draft",
         )
 
-    fallback = (
-        "C:/Users/Administrator/AppData/Local/JianyingPro/User Data/Projects/com.lveditor.draft"
-    )
     for path in candidates:
         if os.path.exists(path):
             return path

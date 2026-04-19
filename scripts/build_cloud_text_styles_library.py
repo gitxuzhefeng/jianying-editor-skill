@@ -2,9 +2,33 @@ import os
 import json
 import csv
 
-# 路径定义
-LOCAL_APP_DATA = os.getenv('LOCALAPPDATA')
-PROJECTS_ROOT = os.path.join(LOCAL_APP_DATA, r"JianyingPro\User Data\Projects\com.lveditor.draft")
+import sys
+
+# 路径定义 (跨平台)
+def _get_default_projects_root() -> str:
+    if sys.platform == "darwin":
+        home = os.path.expanduser("~")
+        candidates = [
+            os.path.join(home, "Movies", "JianyingPro Drafts"),
+            os.path.join(home, "Movies", "JianyingPro", "User Data", "Projects", "com.lveditor.draft"),
+            os.path.join(
+                home, "Library", "Containers", "com.lemon.lvpro", "Data",
+                "Library", "Application Support", "JianyingPro",
+                "User Data", "Projects", "com.lveditor.draft",
+            ),
+        ]
+    else:
+        local_app_data = os.getenv("LOCALAPPDATA", "")
+        candidates = [
+            os.path.join(local_app_data, "JianyingPro", "User Data", "Projects", "com.lveditor.draft"),
+        ] if local_app_data else []
+
+    for p in candidates:
+        if os.path.exists(p):
+            return p
+    return candidates[0] if candidates else ""
+
+PROJECTS_ROOT = _get_default_projects_root()
 
 # Skill 根目录
 SKILL_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
