@@ -3,7 +3,7 @@ import csv
 import ipaddress
 import os
 import re
-from typing import Dict, Optional
+from typing import Any, Dict, Optional
 from urllib.parse import parse_qs, urlparse
 
 import requests
@@ -16,6 +16,31 @@ CACHE_DIR = os.path.join(WORKSPACE_ROOT, "cloud_cache")
 MAX_DOWNLOAD_BYTES = int(CONFIG.cloud_max_mb * 1024 * 1024)
 ALLOWED_SCHEMES = {"http", "https"}
 logger = setup_logger("cloud_manager")
+
+JY_MGET_ITEM_URL = (
+    "https://lv-api-sinfonlinea.ulikecam.com/artist/v1/effect/mget_item"
+    "?effect_sdk_version=16.4.0"
+    "&channel=jianyingpro_0"
+    "&aid=3704"
+    "&opengl_version=3.3"
+    "&device_id=1053764930506284"
+    "&cpu=12th%20Gen%20Intel(R)%20Core(TM)%20i5-12400F"
+    "&version_name=5.9.0"
+    "&language=zh-Hans"
+    "&region=CN"
+    "&version_code=5.9.0"
+    "&device_platform=windows"
+    "&biz_id=2"
+    "&subdivision_id="
+    "&gpu=NVIDIA%20GeForce%20RTX%203060"
+    "&version_code_num=329984"
+    "&device_type=x86_64"
+)
+JY_API_HEADERS = {
+    "User-Agent": "JianyingPro/5.9.0.11632 (Windows 10.0.19045; app_id:3704)",
+    "Accept": "application/json, text/plain, */*",
+    "Content-Type": "application/json",
+}
 
 
 class CloudManager:
@@ -65,16 +90,13 @@ class CloudManager:
     def find_asset(self, query: str) -> Optional[dict]:
         """
         Find by ID or fuzzy name.
-        Important rule: rows without URL are treated as unavailable and not returned.
+        Rows without static URL are still usable because the runtime can resolve fresh URLs by ID.
         """
         if query in self.assets:
-            asset = self.assets[query]
-            return asset if asset.get("url") else None
+            return self.assets[query]
 
         q = str(query).lower()
         for asset in self.assets.values():
-            if not asset.get("url"):
-                continue
             if q in str(asset.get("name", "")).lower():
                 return asset
         return None
@@ -112,6 +134,57 @@ class CloudManager:
                 )
                 if url_match:
                     return url_match.group(0).replace("\\u0026", "&").replace("\\/", "/")
+        return None
+
+    def _extract_urls(self, data: Any) -> list[str]:
+        urls: list[str] = []
+
+        def walk(obj: Any) -> None:
+            if isinstance(obj, dict):
+                for key, value in obj.items():
+                    if key == "item_urls" and isinstance(value, list):
+                        urls.extend(str(v) for v in value if isinstance(v, str))
+                    elif key in {"url", "video_url", "download_url"} and isinstance(value, str):
+                        urls.append(value)
+                    else:
+                        walk(value)
+            elif isinstance(obj, list):
+                for value in obj:
+                    walk(value)
+
+        walk(data)
+        return [
+            url.replace("\\u0026", "&").replace("\\/", "/")
+            for url in urls
+            if url.startswith("http")
+        ]
+
+    def _resolve_url_by_id(self, asset: dict) -> Optional[str]:
+        eid = asset.get("id")
+        if not eid:
+            return None
+
+        bodies = [
+            {"items": [{"id": eid, "effect_type": 4, "source": 3}]},
+            {"items": [{"id": eid, "effect_type": 4}]},
+            {"items": [{"effect_id": eid, "effect_type": 4, "source": 3}]},
+            {"items": [{"effect_id": eid, "effect_type": 4}]},
+        ]
+
+        for body in bodies:
+            try:
+                res = requests.post(JY_MGET_ITEM_URL, headers=JY_API_HEADERS, json=body, timeout=20)
+                res.raise_for_status()
+                data = res.json()
+            except Exception as e:
+                logger.debug("Cloud URL resolve attempt failed for ID %s: %s", eid, e)
+                continue
+
+            for url in self._extract_urls(data):
+                if self._is_safe_download_url(url):
+                    asset["url"] = url
+                    logger.info("Resolved fresh cloud URL for ID %s.", eid)
+                    return url
         return None
 
     def _is_safe_download_url(self, url: str) -> bool:
@@ -194,9 +267,13 @@ class CloudManager:
         eid = asset["id"]
         safe_name = "".join([c for c in asset["name"] if c.isalnum() or c in (" ", "_")]).strip()
 
+        resolved_fresh = False
         url = asset.get("url")
         if (not url) or force:
             url = self.get_url_from_logs(eid)
+        if not url:
+            url = self._resolve_url_by_id(asset)
+            resolved_fresh = bool(url)
 
         if not url:
             logger.warning("No valid download URL found for ID %s.", eid)
@@ -220,44 +297,61 @@ class CloudManager:
                 except Exception:
                     return legacy_mp4_path
 
-        logger.info("Downloading Cloud Asset: %s", asset["name"])
-        try:
-            res = requests.get(url, stream=True, timeout=60)
-            res.raise_for_status()
-            if not self._validate_response_headers(res):
-                logger.warning("Download blocked by header validation for ID %s.", eid)
-                return None
+        urls_to_try = [url]
+        if not resolved_fresh:
+            fresh_url = self._resolve_url_by_id(asset)
+            if fresh_url and fresh_url not in urls_to_try:
+                urls_to_try.append(fresh_url)
 
-            ext_from_headers = self._infer_extension(
-                asset, url=url, content_type=(res.headers.get("Content-Type") or "")
-            )
-            if ext_from_headers != ext:
-                ext = ext_from_headers
-                local_filename = f"{eid}_{safe_name}{ext}"
-                local_path = os.path.join(CACHE_DIR, local_filename)
+        for attempt_url in urls_to_try:
+            if not self._is_safe_download_url(attempt_url):
+                logger.warning("Unsafe download URL blocked for ID %s: %s", eid, attempt_url)
+                continue
+            logger.info("Downloading Cloud Asset: %s", asset["name"])
+            res = None
+            try:
+                res = requests.get(attempt_url, stream=True, timeout=60)
+                res.raise_for_status()
+                if not self._validate_response_headers(res):
+                    logger.warning("Download blocked by header validation for ID %s.", eid)
+                    continue
 
-            tmp_path = local_path + ".part"
-            total = 0
-            with open(tmp_path, "wb") as f:
-                for chunk in res.iter_content(chunk_size=32768):
-                    if not chunk:
-                        continue
-                    total += len(chunk)
-                    if total > MAX_DOWNLOAD_BYTES:
-                        raise ValueError(f"Download exceeds size limit: {MAX_DOWNLOAD_BYTES} bytes")
-                    f.write(chunk)
-            os.replace(tmp_path, local_path)
-            logger.info("Download finished: %s", local_path)
-            return local_path
-        except Exception as e:
-            part = local_path + ".part"
-            if os.path.exists(part):
-                try:
-                    os.remove(part)
-                except Exception:
-                    pass
-            logger.error("Download error: %s", e)
-            return None
+                ext_from_headers = self._infer_extension(
+                    asset, url=attempt_url, content_type=(res.headers.get("Content-Type") or "")
+                )
+                if ext_from_headers != ext:
+                    ext = ext_from_headers
+                    local_filename = f"{eid}_{safe_name}{ext}"
+                    local_path = os.path.join(CACHE_DIR, local_filename)
+
+                tmp_path = local_path + ".part"
+                total = 0
+                with open(tmp_path, "wb") as f:
+                    for chunk in res.iter_content(chunk_size=32768):
+                        if not chunk:
+                            continue
+                        total += len(chunk)
+                        if total > MAX_DOWNLOAD_BYTES:
+                            raise ValueError(f"Download exceeds size limit: {MAX_DOWNLOAD_BYTES} bytes")
+                        f.write(chunk)
+                os.replace(tmp_path, local_path)
+                logger.info("Download finished: %s", local_path)
+                return local_path
+            except Exception as e:
+                part = local_path + ".part"
+                if os.path.exists(part):
+                    try:
+                        os.remove(part)
+                    except Exception:
+                        pass
+                logger.error("Download error: %s", e)
+            finally:
+                if res is not None:
+                    try:
+                        res.close()
+                    except Exception:
+                        pass
+        return None
 
 
 if __name__ == "__main__":

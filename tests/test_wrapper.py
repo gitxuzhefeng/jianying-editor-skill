@@ -203,6 +203,55 @@ class TestJyWrapper(unittest.TestCase):
         self.assertEqual(len(p.script.materials.transitions), 1)
         self.assertEqual(p.script.materials.transitions[0].global_id, seg.transition.global_id)
 
+    def test_14_cloud_find_asset_allows_missing_static_url(self):
+        """测试 CSV 中 URL 为空的云音乐仍可按 ID 命中，供运行时刷新 URL"""
+        cm = CloudManager()
+        asset = cm.find_asset("7176685873453500417")
+
+        self.assertIsNotNone(asset)
+        self.assertEqual(asset["id"], "7176685873453500417")
+        self.assertEqual(asset.get("source_db"), "cloud_music_library.csv")
+
+    def test_15_cloud_resolve_url_by_id_from_mget_item(self):
+        """测试可从 mget_item 响应里提取即时下载 URL"""
+        cm = CloudManager()
+        asset = {
+            "id": "7176685873453500417",
+            "name": "More of My Time (Lofi)",
+            "url": "",
+            "source_db": "cloud_music_library.csv",
+            "type": "VLOG",
+        }
+
+        class Resp:
+            def raise_for_status(self):
+                return None
+
+            def json(self):
+                return {
+                    "ret": "0",
+                    "data": {
+                        "effect_item_list": [
+                            {
+                                "common_attr": {
+                                    "item_urls": [
+                                        "https://v26-jianying.vlabvod.com/test/audio?mime_type=audio_mp4"
+                                    ]
+                                }
+                            }
+                        ]
+                    },
+                }
+
+        with patch("cloud_manager.requests.post", return_value=Resp()) as mocked_post:
+            url = cm._resolve_url_by_id(asset)
+
+        self.assertEqual(
+            url, "https://v26-jianying.vlabvod.com/test/audio?mime_type=audio_mp4"
+        )
+        self.assertEqual(asset["url"], url)
+        mocked_post.assert_called()
+
     @classmethod
     def tearDownClass(cls):
         # 清理测试产物
