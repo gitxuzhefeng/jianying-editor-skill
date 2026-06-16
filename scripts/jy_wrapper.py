@@ -16,7 +16,7 @@ setup_env()
 from utils.constants import SYNONYMS
 from utils.formatters import (
     resolve_enum_with_synonyms, format_srt_time, safe_tim, 
-    get_duration_ffprobe_cached, get_default_drafts_root, get_all_drafts
+    get_duration_ffprobe_cached, get_default_drafts_root, get_all_drafts,
 )
 
 # 导入基类与 Mixins
@@ -46,17 +46,33 @@ class JyProject(JyProjectBase, MediaOpsMixin, TextOpsMixin, VfxOpsMixin, Mocking
             target_start = self.get_track_duration(track_name)
         return self.add_media_safe(media_path, target_start, duration, track_name, source_start=source_start, **kwargs)
 
+    def _finalize_draft_on_disk(self, draft_path: str) -> dict:
+        from utils.draft_materials import relocate_external_materials
+        from utils.workspace import mirror_draft_to_workspace
+
+        if os.path.exists(draft_path):
+            os.utime(draft_path, None)
+
+        moved = relocate_external_materials(draft_path)
+        if moved:
+            print(f"[i] Copied {moved} external material(s) into draft folder.")
+
+        mirror_path = mirror_draft_to_workspace(draft_path, self.name)
+        if mirror_path:
+            print(f"[i] Workspace mirror: {mirror_path}")
+
+        return {"status": "SUCCESS", "draft_path": draft_path, "mirror_path": mirror_path}
+
     def save(self):
         """保存并执行质检报告。"""
         self.script.save()
         self._patch_cloud_material_ids()
         self._force_activate_adjustments()
-        
+
         draft_path = os.path.join(self.root, self.name)
-        if os.path.exists(draft_path):
-            os.utime(draft_path, None)
+        result = self._finalize_draft_on_disk(draft_path)
         print(f"✅ Project '{self.name}' saved and patched.")
-        return {"status": "SUCCESS", "draft_path": draft_path}
+        return result
 
 # 导出工具函数以便向下兼容
 __all__ = ["JyProject", "get_default_drafts_root", "get_all_drafts", "safe_tim", "format_srt_time"]

@@ -37,3 +37,10 @@ def setup_env():
             if os.path.exists(api_path) and api_path not in sys.path:
                 sys.path.append(api_path)
                 break
+
+    try:
+        from utils.workspace import apply_workspace_env
+
+        apply_workspace_env()
+    except Exception:
+        pass

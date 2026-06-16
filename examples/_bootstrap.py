@@ -45,4 +45,8 @@ def ensure_skill_scripts_on_path(start_dir: str) -> Tuple[str, str]:
     scripts_dir = os.path.join(skill_root, "scripts")
     if scripts_dir not in sys.path:
         sys.path.insert(0, scripts_dir)
+    from utils.workspace import apply_workspace_env
+
+    workspace_root = apply_workspace_env()
+    print(f"Workspace: {workspace_root}")
     return skill_root, scripts_dir

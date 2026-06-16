@@ -18,8 +18,8 @@ def find_draft_content_path(draft_path: str) -> Optional[str]:
 
 
 # ----------------- 路径自动探测 -----------------
-def get_default_drafts_root() -> str:
-    """自动探测剪映草稿目录 (Windows / macOS 跨平台)"""
+def _detect_native_jianying_drafts_root() -> str:
+    """探测剪映客户端原生草稿目录（忽略 JY_PROJECTS_ROOT 等覆盖项）。"""
     import sys as _sys
 
     candidates = []
@@ -105,6 +105,22 @@ def get_default_drafts_root() -> str:
         if os.path.exists(path):
             return path
     return candidates[0] if candidates else fallback
+
+
+def get_default_drafts_root() -> str:
+    """草稿根目录：优先 JY_PROJECTS_ROOT / JY_WORKSPACE_ROOT，否则回退剪映原生目录。"""
+    override = os.getenv("JY_PROJECTS_ROOT", "").strip()
+    if override:
+        os.makedirs(override, exist_ok=True)
+        return os.path.abspath(override)
+
+    workspace = os.getenv("JY_WORKSPACE_ROOT", "").strip()
+    if workspace:
+        drafts = os.path.join(workspace, "drafts")
+        os.makedirs(drafts, exist_ok=True)
+        return os.path.abspath(drafts)
+
+    return _detect_native_jianying_drafts_root()
 
 
 def get_all_drafts(root_path: str = None) -> List[Dict]:
