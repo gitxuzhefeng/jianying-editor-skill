@@ -1,6 +1,7 @@
 import os
 import json
 import uuid
+import shutil
 import pyJianYingDraft as draft
 
 class MockVideoMaterial(draft.VideoMaterial):
@@ -115,3 +116,68 @@ class MockingOpsMixin:
                     json.dump(data, f, ensure_ascii=False)
         except Exception:
             pass
+
+    def _patch_flower_text_styles(self):
+        if not self._cloud_text_patches:
+            return
+
+        draft_path = os.path.join(self.root, self.name)
+        content_path = os.path.join(draft_path, "draft_info.json")
+        if not os.path.exists(content_path):
+            content_path = os.path.join(draft_path, "draft_content.json")
+        if not os.path.exists(content_path):
+            return
+
+        try:
+            from utils.skill_path import resolve_skill_root
+
+            skill_root, _ = resolve_skill_root(os.path.join(os.path.dirname(__file__), ".."))
+            if not skill_root:
+                env_root = os.getenv("JY_SKILL_ROOT", "").strip()
+                skill_root = env_root if env_root else None
+            if not skill_root:
+                return
+
+            with open(content_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+
+            texts = data.get("materials", {}).get("texts", [])
+            has_modified = False
+            for mat in texts:
+                mid = mat.get("id")
+                style_id = self._cloud_text_patches.get(mid)
+                if not style_id:
+                    continue
+
+                src_style_dir = os.path.join(skill_root, "assets", "artistEffect", style_id)
+                if not os.path.isdir(src_style_dir):
+                    continue
+
+                dest_style_dir = os.path.join(draft_path, "materials", "artistEffect", style_id)
+                shutil.copytree(src_style_dir, dest_style_dir, dirs_exist_ok=True)
+
+                effect_subdir = None
+                for name in os.listdir(dest_style_dir):
+                    candidate = os.path.join(dest_style_dir, name)
+                    if os.path.isdir(candidate):
+                        effect_subdir = candidate
+                        break
+                if not effect_subdir:
+                    effect_subdir = dest_style_dir
+
+                raw = mat.get("content", "")
+                if not raw:
+                    continue
+                content = json.loads(raw)
+                styles = content.get("styles", [])
+                if not styles:
+                    continue
+                styles[0]["effectStyle"] = {"id": style_id, "path": effect_subdir}
+                mat["content"] = json.dumps(content, ensure_ascii=False)
+                has_modified = True
+
+            if has_modified:
+                with open(content_path, "w", encoding="utf-8") as f:
+                    json.dump(data, f, ensure_ascii=False, indent=4)
+        except Exception as e:
+            print(f"[warn] flower text patch failed: {e}")

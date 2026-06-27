@@ -303,8 +303,13 @@ class ScriptFile:
                 self.materials.animations.append(segment.animations_instance)
             if segment.bubble is not None and segment.bubble not in self.materials:
                 self.materials.filters.append(segment.bubble)
-            if segment.effect is not None and segment.effect not in self.materials:
-                self.materials.filters.append(segment.effect)
+            if segment.effect is not None:
+                exists = any(
+                    getattr(e, "effect_id", None) == segment.effect.effect_id
+                    for e in self.materials.filters
+                )
+                if not exists:
+                    self.materials.filters.append(segment.effect)
 
     def register_all_segment_extras(self) -> None:
         """Ensure side materials stay in sync with segments before exporting."""

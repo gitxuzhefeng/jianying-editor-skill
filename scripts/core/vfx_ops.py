@@ -44,7 +44,8 @@ class VfxOpsMixin:
         return video_segment.transition
 
     def add_web_asset_safe(self, html_path: str, start_time: Union[str, int] = None, duration: Union[str, int] = "5s", 
-                           track_name: str = "WebVfxTrack", output_dir: Optional[str] = None):
+                           track_name: str = "WebVfxTrack", output_dir: Optional[str] = None,
+                           width: int = 1920, height: int = 1080):
         from web_recorder import record_web_animation
         
         if start_time is None:
@@ -54,6 +55,12 @@ class VfxOpsMixin:
         os.makedirs(output_dir, exist_ok=True)
         
         video_output = os.path.join(output_dir, f"web_vfx_{int(time.time())}.webm")
-        if record_web_animation(html_path, video_output, max_duration=safe_tim(duration)/1e6 + 5):
+        if record_web_animation(
+            html_path,
+            video_output,
+            max_duration=safe_tim(duration) / 1e6 + 5,
+            width=width,
+            height=height,
+        ):
             return self.add_media_safe(video_output, start_time, duration, track_name=track_name)
         return None

@@ -66,6 +66,39 @@ class TextOpsMixin:
         self.script.add_segment(seg, track_name)
         return seg
 
+    def add_styled_text(
+        self,
+        text: str,
+        style_id: str,
+        start_time: Union[str, int] = None,
+        duration: Union[str, int] = "2.5s",
+        track_name: str = "FlowerText",
+        transform_y: float = 0.4,
+        anim_in: str = None,
+        size: float = 10.0,
+    ):
+        """花字标题：style_id 见 data/cloud_text_styles.csv / assets/artistEffect/"""
+        if start_time is None:
+            start_time = self.get_track_duration(track_name)
+        self._ensure_track(draft.TrackType.text, track_name)
+
+        start_us = safe_tim(start_time)
+        dur_us = safe_tim(duration)
+        seg = draft.TextSegment(
+            text,
+            draft.Timerange(start_us, dur_us),
+            clip_settings=draft.ClipSettings(transform_y=transform_y),
+            style=draft.TextStyle(size=size),
+        )
+        seg.add_effect(style_id)
+        self._cloud_text_patches[seg.material_id] = style_id
+        if anim_in:
+            intro_enum = self._resolve_enum(draft.TextIntro, str(anim_in))
+            if intro_enum:
+                seg.add_animation(intro_enum)
+        self.script.add_segment(seg, track_name)
+        return seg
+
     def add_rich_text(
         self,
         text: str,

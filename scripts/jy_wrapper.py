@@ -67,6 +67,7 @@ class JyProject(JyProjectBase, MediaOpsMixin, TextOpsMixin, VfxOpsMixin, Mocking
         """保存并执行质检报告。"""
         self.script.save()
         self._patch_cloud_material_ids()
+        self._patch_flower_text_styles()
         self._force_activate_adjustments()
 
         draft_path = os.path.join(self.root, self.name)

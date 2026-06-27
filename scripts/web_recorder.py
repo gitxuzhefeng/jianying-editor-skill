@@ -26,7 +26,7 @@ except ImportError:
     # 为了演示兼容性，如果用户没安装 playwright，我们定义一个假的录制器
     sync_playwright = None
 
-def record_web_animation(url_or_path: str, output_path: str, max_duration=30):
+def record_web_animation(url_or_path: str, output_path: str, max_duration=30, width=1920, height=1080):
     """
     录制网页动画直至完成信号触发。
     """
@@ -51,8 +51,8 @@ def record_web_animation(url_or_path: str, output_path: str, max_duration=30):
         browser = p.chromium.launch(headless=True)
         context = browser.new_context(
             record_video_dir=temp_video_dir,
-            record_video_size={"width": 1920, "height": 1080},
-            viewport={"width": 1920, "height": 1080}
+            record_video_size={"width": width, "height": height},
+            viewport={"width": width, "height": height}
         )
         
         page = context.new_page()

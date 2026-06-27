@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>星空粒子片头</title>
+  <style>
+    html, body {
+      margin: 0;
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background: radial-gradient(ellipse at 50% 120%, #0a1628 0%, #020408 55%, #000 100%);
+    }
+    canvas { width: 100%; height: 100%; display: block; }
+  </style>
+</head>
+<body>
+  <canvas id="c"></canvas>
+  <script>
+    const canvas = document.getElementById("c");
+    const ctx = canvas.getContext("2d");
+    const dpr = Math.max(1, Math.min(2, window.devicePixelRatio || 1));
+    const W = 1920, H = 1080;
+    const DURATION_MS = 5000;
+
+    canvas.width = W * dpr;
+    canvas.height = H * dpr;
+    ctx.scale(dpr, dpr);
+
+    const cx = W / 2, cy = H / 2;
+
+    // 远景星尘层
+    const dust = Array.from({ length: 180 }, () => ({
+      x: Math.random() * W,
+      y: Math.random() * H,
+      r: 0.4 + Math.random() * 1.2,
+      phase: Math.random() * Math.PI * 2,
+      speed: 0.3 + Math.random() * 0.8,
+    }));
+
+    // 主粒子：从中心向外飞散的星空粒子
+    const particles = Array.from({ length: 420 }, () => {
+      const angle = Math.random() * Math.PI * 2;
+      const dist = Math.random() * 0.15;
+      return {
+        angle,
+        dist,
+        speed: 0.35 + Math.random() * 1.4,
+        size: 0.6 + Math.random() * 2.8,
+        hue: 200 + Math.random() * 60,
+        alpha: 0.4 + Math.random() * 0.6,
+        twinkle: Math.random() * Math.PI * 2,
+      };
+    });
+
+    // 流星
+    const meteors = [
+      { x: W * 0.72, y: H * 0.18, len: 120, speed: 14, delay: 800, life: 0 },
+      { x: W * 0.28, y: H * 0.35, len: 90, speed: 11, delay: 2200, life: 0 },
+    ];
+
+    function easeOutCubic(t) { return 1 - Math.pow(1 - t, 3); }
+    function easeInOutQuad(t) { return t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2; }
+
+    const start = performance.now();
+
+    function draw(now) {
+      const t = now - start;
+      const progress = Math.min(1, t / DURATION_MS);
+      const intro = easeOutCubic(Math.min(1, t / 1200));
+      const outro = progress > 0.82 ? easeInOutQuad((progress - 0.82) / 0.18) : 0;
+      const globalAlpha = intro * (1 - outro);
+
+      ctx.clearRect(0, 0, W, H);
+
+      // 深空底色
+      const bg = ctx.createRadialGradient(cx, cy, 0, cx, cy, W * 0.75);
+      bg.addColorStop(0, `rgba(12, 28, 58, ${0.95 * globalAlpha})`);
+      bg.addColorStop(0.45, `rgba(4, 10, 24, ${0.98 * globalAlpha})`);
+      bg.addColorStop(1, `rgba(0, 0, 0, ${globalAlpha})`);
+      ctx.fillStyle = bg;
+      ctx.fillRect(0, 0, W, H);
+
+      // 星云光晕
+      const nebula = ctx.createRadialGradient(cx, cy * 0.9, 0, cx, cy, W * 0.55);
+      nebula.addColorStop(0, `rgba(80, 140, 255, ${0.12 * globalAlpha})`);
+      nebula.addColorStop(0.5, `rgba(120, 60, 200, ${0.06 * globalAlpha})`);
+      nebula.addColorStop(1, "rgba(0,0,0,0)");
+      ctx.fillStyle = nebula;
+      ctx.fillRect(0, 0, W, H);
+
+      // 远景星尘
+      for (const s of dust) {
+        const tw = 0.55 + 0.45 * Math.sin(now * 0.002 * s.speed + s.phase);
+        ctx.beginPath();
+        ctx.fillStyle = `rgba(200, 220, 255, ${0.35 * tw * globalAlpha})`;
+        ctx.arc(s.x, s.y, s.r, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      // 粒子飞散（透视感）
+      const zoom = 1 + progress * 0.35;
+      for (const p of particles) {
+        p.dist += p.speed * 0.004 * (1 + progress * 0.6);
+        if (p.dist > 1.15) {
+          p.dist = Math.random() * 0.05;
+          p.angle = Math.random() * Math.PI * 2;
+        }
+        const r = p.dist * Math.min(W, H) * 0.52 * zoom;
+        const x = cx + Math.cos(p.angle) * r;
+        const y = cy + Math.sin(p.angle) * r;
+        const tw = 0.6 + 0.4 * Math.sin(now * 0.004 + p.twinkle);
+        const a = p.alpha * tw * globalAlpha * (1 - p.dist * 0.5);
+        const size = p.size * (0.5 + p.dist * 1.2);
+
+        ctx.beginPath();
+        const g = ctx.createRadialGradient(x, y, 0, x, y, size * 2.5);
+        g.addColorStop(0, `hsla(${p.hue}, 80%, 85%, ${a})`);
+        g.addColorStop(1, `hsla(${p.hue}, 70%, 60%, 0)`);
+        ctx.fillStyle = g;
+        ctx.arc(x, y, size * 2.5, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      // 流星
+      for (const m of meteors) {
+        if (t < m.delay) continue;
+        m.life = Math.min(1, (t - m.delay) / 600);
+        const fade = m.life < 0.7 ? m.life / 0.7 : (1 - m.life) / 0.3;
+        const x = m.x - m.life * m.speed * 18;
+        const y = m.y + m.life * m.speed * 8;
+        const grad = ctx.createLinearGradient(x, y, x + m.len, y - m.len * 0.4);
+        grad.addColorStop(0, `rgba(255,255,255,${0.9 * fade * globalAlpha})`);
+        grad.addColorStop(0.3, `rgba(180,210,255,${0.5 * fade * globalAlpha})`);
+        grad.addColorStop(1, "rgba(120,160,255,0)");
+        ctx.strokeStyle = grad;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(x, y);
+        ctx.lineTo(x + m.len, y - m.len * 0.4);
+        ctx.stroke();
+      }
+
+      // 片头标题
+      const titleIn = easeOutCubic(Math.min(1, Math.max(0, (t - 900) / 800)));
+      const titleOut = progress > 0.78 ? easeInOutQuad((progress - 0.78) / 0.22) : 0;
+      const titleAlpha = titleIn * (1 - titleOut) * globalAlpha;
+      if (titleAlpha > 0.01) {
+        ctx.save();
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        const titleY = cy + 8;
+        ctx.font = "600 72px 'PingFang SC', 'Helvetica Neue', sans-serif";
+        ctx.fillStyle = `rgba(235, 245, 255, ${0.95 * titleAlpha})`;
+        ctx.shadowColor = `rgba(120, 180, 255, ${0.8 * titleAlpha})`;
+        ctx.shadowBlur = 28;
+        ctx.fillText("星 空 启 航", cx, titleY);
+        ctx.font = "400 28px 'PingFang SC', 'Helvetica Neue', sans-serif";
+        ctx.fillStyle = `rgba(170, 200, 240, ${0.75 * titleAlpha})`;
+        ctx.shadowBlur = 12;
+        ctx.fillText("STARFIELD INTRO", cx, titleY + 58);
+        ctx.restore();
+      }
+
+      // 中心微光
+      const coreGlow = ctx.createRadialGradient(cx, cy, 0, cx, cy, 80);
+      coreGlow.addColorStop(0, `rgba(255,255,255,${0.15 * globalAlpha})`);
+      coreGlow.addColorStop(1, "rgba(255,255,255,0)");
+      ctx.fillStyle = coreGlow;
+      ctx.fillRect(cx - 80, cy - 80, 160, 160);
+
+      if (t >= DURATION_MS) {
+        window.animationFinished = true;
+        return;
+      }
+      requestAnimationFrame(draw);
+    }
+
+    requestAnimationFrame(draw);
+  </script>
+</body>
+</html>
